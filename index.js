@@ -20,12 +20,10 @@ app.get('/get-track/:id', async (req, res) => {
         let artist = response.data.author_name || "Unknown Artist";
         let title = fullTitle;
         
-                if (fullTitle.includes(" - ")) {
+        if (fullTitle.includes(" - ")) {
             const parts = fullTitle.split(" - ");
-            artist = parts[0].trim(); // Index [0] is mandatory
-            title = parts[1].trim();  // Index [1] is mandatory
-        }
-
+            artist = parts[0].trim();
+            title = parts[1].trim();
         }
         
         return res.json({
