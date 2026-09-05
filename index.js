@@ -1,46 +1,44 @@
 const express = require('express');
-const axios = require('axios');
+const scdl = require('soundcloud-downloader').default; // Installeer deze module!
 const app = express();
 const PORT = process.env.PORT || 8080;
 
 app.use(express.json());
 
-// This route catches the extended URL path structure safely
+// De route die Roblox aanroept
 app.get('/get-track/:artist/:track', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
 
     try {
         const { artist, track } = req.params;
-        // Combines them into a proper SoundCloud landing page link format
-        const targetUrl = `https://soundcloud.com{artist}/${track}&format=json`;
+        // Bouw de echte SoundCloud URL
+        const targetUrl = `https://soundcloud.com{artist}/${track}`;
         
-        const response = await axios.get(targetUrl, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
-        });
+        console.log(`Searching SoundCloud for: ${targetUrl}`);
+
+        // 1. Haal de metadata op (Titel, Artiest, etc.)
+        const info = await scdl.getInfo(targetUrl);
         
-        const fullTitle = response.data.title || "Unknown Track";
-        let parsedArtist = response.data.author_name || "Unknown Artist";
-        let title = fullTitle;
-        
-        if (fullTitle.includes(" - ")) {
-            const parts = fullTitle.split(" - ");
-            parsedArtist = parts[0].trim();
-            title = parts[1].trim();
+        // 2. Haal de DIRECTE MP3 stream-URL op die Roblox kan afspelen
+        const streamUrl = await scdl.downloadFormat(targetUrl, scdl.FORMATS.MP3);
+
+        if (!streamUrl) {
+            throw new Error("Could not generate stream URL");
         }
-        
+
         return res.json({
             success: true,
-            title: title,
-            artist: parsedArtist,
-            duration: 180000 
+            title: info.title || track,
+            artist: info.user?.username || artist,
+            audioUrl: streamUrl // Dit sturen we nu wél mee naar Roblox!
         });
         
     } catch (error) {
+        console.error("Error fetching SoundCloud track:", error.message);
         return res.json({
             success: false,
-            title: "BKJN",
-            artist: "Lekkerfaces",
-            duration: 180000,
+            title: "Fout",
+            artist: "Track niet gevonden of fout",
             error: error.message
         });
     }
