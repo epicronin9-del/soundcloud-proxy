@@ -7,72 +7,80 @@ app.use(express.json());
 
 app.get('/', (req, res) => {
     res.setHeader('Content-Type', 'application/json');
-    return res.status(200).json({ success: true, message: "Proxy is live en universeel!" });
+    return res.status(200).json({ success: true, message: "Proxy is 100% operationeel!" });
 });
 
-// Universele route die zowel platte titels als complete SoundCloud links accepteert
 app.get('/search', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
 
     try {
         let query = req.query.q;
         if (!query) {
-            return res.status(200).json({ success: false, message: "Geen invoer meegegeven." });
+            return res.status(200).json({ success: false, message: "Geen invoer." });
         }
 
-        console.log(`[SoundCloud Proxy] Invoer ontvangen: "${query}"`);
         const CLIENT_ID = "IL7Y7egZas9X4vG6uu6VpUvT8p6WkM7Y";
+        let trackId = null;
+        let trackTitle = query;
 
-        // OPTIE A: De gebruiker voert een volledige SoundCloud link in
-        if (query.includes("soundcloud.com/")) {
-            console.log(`[SoundCloud Proxy] Directe link gedetecteerd! Resolven...`);
+        // CONTROLE 1: Als de gebruiker een link invoert (we herstellen eventuele verminkte URL's automatisch)
+        if (query.includes("soundcloud.com") || query.includes("soundcloud")) {
+            console.log(`[Proxy] Directe link gedetecteerd, bezig met herstellen...`);
             
-            // Haal de trackgegevens rechtstreeks op via de permalink-resolver van SoundCloud
-            const resolveUrl = `https://soundcloud.com{encodeURIComponent(query)}&client_id=${CLIENT_ID}`;
-            const resolveResponse = await axios.get(resolveUrl, {
-                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
-            });
-
-            const trackData = resolveResponse.data;
-            if (!trackData || !trackData.id) {
-                return res.status(200).json({ success: false, message: "Link kon niet worden opgelost." });
+            // Zorg dat de URL de juiste HTTP-indeling heeft
+            let cleanUrl = query;
+            if (!cleanUrl.startsWith("http")) {
+                cleanUrl = "https://" + cleanUrl.replace(/^(http:\/\/|https:\/\/)?/, "");
             }
 
-            const finalAudioUrl = `https://soundcloud.com{trackData.id}/stream?client_id=${CLIENT_ID}`;
-            console.log(`[SoundCloud Proxy] Succesvol opgelost via link: "${trackData.title}"`);
+            const resolveUrl = `https://soundcloud.com{encodeURIComponent(cleanUrl)}&client_id=${CLIENT_ID}`;
+            const resolveResponse = await axios.get(resolveUrl, {
+                headers: { 'User-Agent': 'Mozilla/5.0' }
+            });
+
+            if (resolveResponse.data && resolveResponse.data.id) {
+                trackId = resolveResponse.data.id;
+                trackTitle = resolveResponse.data.title;
+            }
+        }
+
+        // CONTROLE 2: Als het zoeken via tekst gaat (automatische focus op Lekkerfaces hardstyle releases)
+        if (!trackId) {
+            console.log(`[Proxy] Zoeken op trefwoord: "${query}"`);
+            
+            // We sturen de zoekopdracht breed in om de Dynamite Saturday OST direct op te vangen
+            const searchUrl = `https://soundcloud.com{encodeURIComponent(query)}&client_id=${CLIENT_ID}&limit=5`;
+            const searchResponse = await axios.get(searchUrl, {
+                headers: { 'User-Agent': 'Mozilla/5.0' }
+            });
+
+            const collection = searchResponse.data?.collection || [];
+            if (collection.length > 0) {
+                // Zoek bij voorkeur naar de track van Lekkerfaces binnen de top-resultaten
+                const exactMatch = collection.find(t => t.user?.permalink === 'lekkerfaces' || t.title.toLowerCase().includes('lekkerfaces')) || collection[0];
+                trackId = exactMatch.id;
+                trackTitle = exactMatch.title;
+            }
+        }
+
+        // Als er na beide controles een ID is gevonden, genereren we de MP3 stream
+        if (trackId) {
+            const finalAudioUrl = `https://soundcloud.com{trackId}/stream?client_id=${CLIENT_ID}`;
+            console.log(`[Proxy] Succesvol gekoppeld: "${trackTitle}" (ID: ${trackId})`);
 
             return res.status(200).json({
                 success: true,
-                title: trackData.title || "Gevonden via link",
+                title: trackTitle,
                 audioUrl: finalAudioUrl
             });
         }
 
-        // OPTIE B: De gebruiker voert een normale titel in (de oude zoekmethode)
-        const searchUrl = `https://soundcloud.com{encodeURIComponent(query)}&client_id=${CLIENT_ID}&limit=1`;
-        const searchResponse = await axios.get(searchUrl, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
-        });
-
-        const collection = searchResponse.data?.collection || [];
-        if (collection.length === 0) {
-            return res.status(200).json({ success: false, message: "Niet gevonden via titel." });
-        }
-
-        const trackData = collection[0];
-        const finalAudioUrl = `https://soundcloud.com{trackData.id}/stream?client_id=${CLIENT_ID}`;
-        console.log(`[SoundCloud Proxy] Succesvol gevonden via zoekopdracht: "${trackData.title}"`);
-
-        return res.status(200).json({
-            success: true,
-            title: trackData.title || query,
-            audioUrl: finalAudioUrl
-        });
+        return res.status(200).json({ success: false, message: "Nummer onvindbaar." });
 
     } catch (error) {
-        console.error("[SoundCloud Proxy] Fout opgetreden:", error.message);
-        return res.status(200).json({ success: false, message: "Fout op de server bij verwerking." });
+        console.error("[Proxy] Kritieke fout:", error.message);
+        return res.status(200).json({ success: false, error: error.message });
     }
 });
 
-app.listen(PORT, () => console.log(`[SoundCloud Proxy] Systeem operationeel op poort ${PORT}`));
+app.listen(PORT, () => console.log(`[Proxy] Server gestart op poort ${PORT}`));
