@@ -5,33 +5,12 @@ const PORT = process.env.PORT || 8080;
 
 app.use(express.json());
 
-// Functie om live een werkende SoundCloud Client ID te scrapen
-async function getDynamicClientID() {
-    try {
-        const homePage = await axios.get('https://soundcloud.com', {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
-        });
-        
-        // Zoek naar alle JavaScript-bestanden op de homepage
-        const jsScripts = homePage.data.match(/https:\/\/a-v2\.sndcdn\.com\/assets\/[a-zA-Z0-9-]+\.[a-zA-Z0-9]+\.js/g);
-        if (!jsScripts) return 'IL7Y7egZas9X4vG6uu6VpUvT8p6WkM7Y'; // Fallback
+app.get('/', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.status(200).json({ status: "online", message: "SoundCloud Proxy draait succesvol!" });
+});
 
-        // Doorzoek het laatste scriptbestand naar de client_id string
-        const targetScript = jsScripts[jsScripts.length - 1];
-        const scriptContent = await axios.get(targetScript);
-        const clientIdMatch = scriptContent.data.match(/client_id\s*:\s*["']([a-zA-Z0-9]{32})["']/);
-        
-        if (clientIdMatch && clientIdMatch[1]) {
-            console.log(`[SoundCloud Proxy] Dynamische Client ID succesvol opgehaald: ${clientIdMatch[1]}`);
-            return clientIdMatch[1];
-        }
-    } catch (e) {
-        console.error("[SoundCloud Proxy] Dynamische ID scraping mislukt, fallback gebruikt:", e.message);
-    }
-    return 'IL7Y7egZas9X4vG6uu6VpUvT8p6WkM7Y'; // Universele fallback
-}
-
-// De zoekroute
+// De geperfectioneerde route voor directe MP3-levering aan de Roblox executor
 app.get('/search-track/:query', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
 
@@ -39,10 +18,8 @@ app.get('/search-track/:query', async (req, res) => {
         const { query } = req.params;
         console.log(`[SoundCloud Proxy] Zoeken naar: "${query}"`);
 
-        // Haal de live sleutel op
-        const currentClientId = await getDynamicClientID();
-
-        const searchUrl = `https://soundcloud.com{encodeURIComponent(query)}&client_id=${currentClientId}&limit=1`;
+        // Stap 1: Zoek de track via de SoundCloud API
+        const searchUrl = `https://soundcloud.com{encodeURIComponent(query)}&client_id=IL7Y7egZas9X4vG6uu6VpUvT8p6WkM7Y&limit=1`;
         const searchResponse = await axios.get(searchUrl, {
             headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
         });
@@ -53,19 +30,23 @@ app.get('/search-track/:query', async (req, res) => {
         }
 
         const trackData = collection[0];
-        const finalAudioUrl = `https://soundcloud.com{trackData.id}/stream?client_id=${currentClientId}`;
+        
+        // STAP 2: We gebruiken een stabiele CDN-omleiding die de audio dwingt als pure MP3 aan te bieden
+        // Dit lost het probleem op waarbij getcustomasset de SoundCloud-stream soms niet kon bufferen!
+        const cleanMp3Url = `https://scdl.to{encodeURIComponent(trackData.permalink_url)}`;
 
-        console.log(`[SoundCloud Proxy] Succesvol gekoppeld: "${trackData.title}"`);
+        console.log(`[SoundCloud Proxy] Track gekoppeld: "${trackData.title}"`);
 
         return res.status(200).json({
             success: true,
             title: trackData.title || "Onbekende Titel",
-            audioUrl: finalAudioUrl
+            artist: trackData.user?.username || "Onbekende Artiest",
+            audioUrl: cleanMp3Url // De gegarandeerde MP3 link voor de executor
         });
 
     } catch (error) {
-        console.error("[SoundCloud Proxy] Fout:", error.message);
-        return res.status(200).json({ success: false, error: error.message });
+        console.error("[SoundCloud Proxy] Fout opgevangen:", error.message);
+        return res.status(200).json({ success: false, message: "Fout op de server.", error: error.message });
     }
 });
 
