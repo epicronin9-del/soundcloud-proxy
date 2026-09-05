@@ -10,63 +10,68 @@ app.get('/', (req, res) => {
     return res.status(200).json({ success: true, message: "Proxy is 100% operationeel!" });
 });
 
+// De universele route voor zowel directe links als titels
 app.get('/search', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
 
     try {
         let query = req.query.q;
         if (!query) {
-            return res.status(200).json({ success: false, message: "Geen invoer." });
+            return res.status(200).json({ success: false, message: "Geen invoer ontvangen." });
         }
 
+        console.log(`[SoundCloud Proxy] Invoer ontvangen: "${query}"`);
         const CLIENT_ID = "IL7Y7egZas9X4vG6uu6VpUvT8p6WkM7Y";
         let trackId = null;
-        let trackTitle = query;
+        let trackTitle = "Gevonden via link";
 
-        // CONTROLE 1: Als de gebruiker een link invoert (we herstellen eventuele verminkte URL's automatisch)
+        // OPTIE A: Er is een browser-link geplakt (We vangen alle varianten op)
         if (query.includes("soundcloud.com") || query.includes("soundcloud")) {
-            console.log(`[Proxy] Directe link gedetecteerd, bezig met herstellen...`);
+            console.log(`[SoundCloud Proxy] Directe link gedetecteerd! Resolven...`);
             
-            // Zorg dat de URL de juiste HTTP-indeling heeft
-            let cleanUrl = query;
-            if (!cleanUrl.startsWith("http")) {
-                cleanUrl = "https://" + cleanUrl.replace(/^(http:\/\/|https:\/\/)?/, "");
+            // Maak de link schoon mocht Roblox er tekens van hebben gemaakt (zoals %3A of %2F)
+            let decodedUrl = decodeURIComponent(query);
+            
+            // Fix voor links die gekopieerd zijn zonder https://
+            if (!decodedUrl.startsWith("http")) {
+                decodedUrl = "https://" + decodedUrl.replace(/^(http:\/\/|https:\/\/)?/, "");
             }
 
-            const resolveUrl = `https://soundcloud.com{encodeURIComponent(cleanUrl)}&client_id=${CLIENT_ID}`;
-            const resolveResponse = await axios.get(resolveUrl, {
-                headers: { 'User-Agent': 'Mozilla/5.0' }
-            });
+            try {
+                const resolveUrl = `https://soundcloud.com{encodeURIComponent(decodedUrl)}&client_id=${CLIENT_ID}`;
+                const resolveResponse = await axios.get(resolveUrl, {
+                    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+                });
 
-            if (resolveResponse.data && resolveResponse.data.id) {
-                trackId = resolveResponse.data.id;
-                trackTitle = resolveResponse.data.title;
+                if (resolveResponse.data && resolveResponse.data.id) {
+                    trackId = resolveResponse.data.id;
+                    trackTitle = resolveResponse.data.title;
+                }
+            } catch (resolveError) {
+                console.error("[SoundCloud Proxy] Resolve via link mislukt:", resolveError.message);
             }
         }
 
-        // CONTROLE 2: Als het zoeken via tekst gaat (automatische focus op Lekkerfaces hardstyle releases)
+        // OPTIE B: Er is een losse titel ingetypt (of de link-resolve is mislukt)
         if (!trackId) {
-            console.log(`[Proxy] Zoeken op trefwoord: "${query}"`);
+            console.log(`[SoundCloud Proxy] Zoeken op trefwoord: "${query}"`);
+            const searchUrl = `https://soundcloud.com{encodeURIComponent(query)}&client_id=${CLIENT_ID}&limit=1`;
             
-            // We sturen de zoekopdracht breed in om de Dynamite Saturday OST direct op te vangen
-            const searchUrl = `https://soundcloud.com{encodeURIComponent(query)}&client_id=${CLIENT_ID}&limit=5`;
             const searchResponse = await axios.get(searchUrl, {
-                headers: { 'User-Agent': 'Mozilla/5.0' }
+                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
             });
 
             const collection = searchResponse.data?.collection || [];
             if (collection.length > 0) {
-                // Zoek bij voorkeur naar de track van Lekkerfaces binnen de top-resultaten
-                const exactMatch = collection.find(t => t.user?.permalink === 'lekkerfaces' || t.title.toLowerCase().includes('lekkerfaces')) || collection[0];
-                trackId = exactMatch.id;
-                trackTitle = exactMatch.title;
+                trackId = collection[0].id;
+                trackTitle = collection[0].title;
             }
         }
 
-        // Als er na beide controles een ID is gevonden, genereren we de MP3 stream
+        // Als we een geldig SoundCloud ID hebben, genereren we de audio-omleiding
         if (trackId) {
             const finalAudioUrl = `https://soundcloud.com{trackId}/stream?client_id=${CLIENT_ID}`;
-            console.log(`[Proxy] Succesvol gekoppeld: "${trackTitle}" (ID: ${trackId})`);
+            console.log(`[SoundCloud Proxy] Succesvol gekoppeld: "${trackTitle}" (ID: ${trackId})`);
 
             return res.status(200).json({
                 success: true,
@@ -78,9 +83,9 @@ app.get('/search', async (req, res) => {
         return res.status(200).json({ success: false, message: "Nummer onvindbaar." });
 
     } catch (error) {
-        console.error("[Proxy] Kritieke fout:", error.message);
-        return res.status(200).json({ success: false, error: error.message });
+        console.error("[SoundCloud Proxy] Algemene fout:", error.message);
+        return res.status(200).json({ success: false, message: "Fout op de server." });
     }
 });
 
-app.listen(PORT, () => console.log(`[Proxy] Server gestart op poort ${PORT}`));
+app.listen(PORT, () => console.log(`[SoundCloud Proxy] Server actief op poort ${PORT}`));
