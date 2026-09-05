@@ -1,81 +1,60 @@
 const express = require('express');
-const scdl = require('soundcloud-downloader').default;
+const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
 app.use(express.json());
 
-// Verbeterde en stabiele zoekroute
+// Ultra-stabiele route die ALTIJD geldige JSON teruggeeft aan Roblox
 app.get('/search-track/:query', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
 
     try {
         const { query } = req.params;
-        console.log(`[SoundCloud Proxy] Zoekopdracht ontvangen voor titel: "${query}"`);
+        console.log(`[SoundCloud Proxy] Nieuwe zoekopdracht ontvangen: "${query}"`);
 
-        // Veilige zoekopdracht uitvoeren op SoundCloud
-        const searchResults = await scdl.search({
-            query: query,
-            resourceType: 'tracks',
-            limit: 5 // We halen er 5 op voor de zekerheid
+        // We gebruiken een publieke SoundCloud-zoekvriendelijke API om resultaten te scrapen
+        const searchUrl = `https://soundcloud.com{encodeURIComponent(query)}&client_id=IL7Y7egZas9X4vG6uu6VpUvT8p6WkM7Y&limit=1`;
+        
+        const searchResponse = await axios.get(searchUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
         });
 
-        // Controleer heel nauwkeurig of de collectie resultaten bevat
-        if (!searchResults || !searchResults.collection || searchResults.collection.length === 0) {
-            console.log(`[SoundCloud Proxy] Geen resultaten gevonden voor: "${query}"`);
+        const collection = searchResponse.data?.collection;
+
+        if (!collection || collection.length === 0) {
+            console.log(`[SoundCloud Proxy] Geen tracks gevonden voor: "${query}"`);
             return res.status(200).json({ 
                 success: false, 
                 message: "Nummer niet gevonden op SoundCloud." 
             });
         }
 
-        // Pak de allereerste track uit de lijst die bruikbaar is
-        const trackInfo = searchResults.collection[0];
-        const trackUrl = trackInfo.permalink_url;
+        const trackData = collection[0];
+        
+        // Directe en betrouwbare opbouw van de stream-URL via SoundCloud's publieke CDN-omleiding
+        const finalAudioUrl = `https://soundcloud.com{trackData.id}/stream?client_id=IL7Y7egZas9X4vG6uu6VpUvT8p6WkM7Y`;
 
-        if (!trackUrl) {
-            return res.status(200).json({ 
-                success: false, 
-                message: "Track gevonden, maar bevat geen geldige URL." 
-            });
-        }
+        console.log(`[SoundCloud Proxy] Match gevonden: "${trackData.title}" (ID: ${trackData.id})`);
 
-        console.log(`[SoundCloud Proxy] Beste match: "${trackInfo.title}" -> ${trackUrl}`);
-
-        // Genereer de directe MP3 stream-URL die je executor nodig heeft
-        let streamUrl;
-        try {
-            streamUrl = await scdl.downloadFormat(trackUrl, scdl.FORMATS.MP3);
-        } catch (streamError) {
-            console.error("[SoundCloud Proxy] Stream genereren mislukt:", streamError.message);
-        }
-
-        if (!streamUrl) {
-            return res.status(200).json({
-                success: false,
-                message: "Dit nummer kan niet worden gestreamd (beveiligd)."
-            });
-        }
-
-        // Stuur het succesvolle antwoord in het juiste JSON-formaat terug
         return res.status(200).json({
             success: true,
-            title: trackInfo.title || "Onbekende Titel",
-            artist: trackInfo.user?.username || "Onbekende Artiest",
-            audioUrl: streamUrl
+            title: trackData.title || "Onbekende Titel",
+            artist: trackData.user?.username || "Onbekende Artiest",
+            audioUrl: finalAudioUrl
         });
-        
+
     } catch (error) {
-        console.error("[SoundCloud Proxy] Kritieke fout in route:", error.message);
-        // Zorg dat we ALTIJD geldige JSON terugsturen, zelfs bij een crash!
+        console.error("[SoundCloud Proxy] Fout opgevangen:", error.message);
+        // Veilige JSON-fallback: we zorgen dat het script NOOIT HTML terugstuurt bij een fout
         return res.status(200).json({
             success: false,
-            error: error.message,
-            message: "Er ging iets mis op de Render server."
+            message: "Fout op de server.",
+            error: error.message
         });
     }
 });
 
 app.listen(PORT, () => {
-    console.log(`[SoundCloud Proxy] Server draait stabiel op poort ${PORT}`);
+    console.log(`[SoundCloud Proxy] Server draait succesvol op poort ${PORT}`);
 });
