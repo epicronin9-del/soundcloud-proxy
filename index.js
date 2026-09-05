@@ -5,21 +5,24 @@ const PORT = process.env.PORT || 8080;
 
 app.use(express.json());
 
-// Basis-route om te testen of de server online is
+// Basis-route: Als je deze link in je browser opent MOET je dit zien!
 app.get('/', (req, res) => {
     res.setHeader('Content-Type', 'application/json');
-    res.status(200).json({ status: "online", message: "SoundCloud Proxy draait succesvol!" });
+    return res.status(200).json({ status: "online", message: "Proxy is live!" });
 });
 
-// Universele zoekroute voor Roblox
+// De universele zoekroute voor Roblox
 app.get('/search-track/:query', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
 
     try {
         const { query } = req.params;
-        console.log(`[SoundCloud Proxy] Nieuwe zoekopdracht ontvangen: "${query}"`);
+        console.log(`[SoundCloud Proxy] Zoeken naar: "${query}"`);
 
-        const searchUrl = `https://soundcloud.com{encodeURIComponent(query)}&client_id=IL7Y7egZas9X4vG6uu6VpUvT8p6WkM7Y&limit=1`;
+        // Een actieve, publieke SoundCloud ClientID
+        const CLIENT_ID = "IL7Y7egZas9X4vG6uu6VpUvT8p6WkM7Y";
+
+        const searchUrl = `https://soundcloud.com{encodeURIComponent(query)}&client_id=${CLIENT_ID}&limit=1`;
         
         const searchResponse = await axios.get(searchUrl, {
             headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
@@ -31,35 +34,34 @@ app.get('/search-track/:query', async (req, res) => {
             return res.status(200).json({ success: false, message: "Nummer niet gevonden op SoundCloud." });
         }
 
-        const trackData = collection[0];
-        const finalAudioUrl = `https://soundcloud.com{trackData.id}/stream?client_id=IL7Y7egZas9X4vG6uu6VpUvT8p6WkM7Y`;
+        const trackData = collection[0]; // Pak het eerste resultaat
+        const finalAudioUrl = `https://soundcloud.com{trackData.id}/stream?client_id=${CLIENT_ID}`;
+
+        console.log(`[SoundCloud Proxy] Succesvol gekoppeld: "${trackData.title}"`);
 
         return res.status(200).json({
             success: true,
             title: trackData.title || "Onbekende Titel",
-            artist: trackData.user?.username || "Onbekende Artiest",
             audioUrl: finalAudioUrl
         });
 
     } catch (error) {
-        return res.status(200).json({ success: false, message: "Fout op de server.", error: error.message });
+        console.error("[SoundCloud Proxy] Fout in route:", error.message);
+        return res.status(200).json({ success: false, message: "Server verwerkingsfout." });
     }
 });
 
-// ==================== ⏰ DE FIX: SELF-PING (WAKKER HOUDEN) ====================
-// Vul hier jouw exacte Render URL in (ZONDER schuine streep op het einde)
-const JOUW_RENDER_URL = "https://onrender.com";
-
+// ==================== ⏰ VEILIGE SELF-PING ====================
+// Deze eenvoudige wekker crasht NOOIT, wat er ook gebeurt
 setInterval(async () => {
     try {
-        // De server stuurt elke 10 minuten een klein verzoek naar zichzelf
-        await axios.get(JOUW_RENDER_URL);
-        console.log("[Keep-Alive] Succesvol een ping naar onszelf gestuurd om wakker te blijven!");
-    } catch (error) {
-        console.error("[Keep-Alive] Ping mislukt, maar de server is in ieder geval actief:", error.message);
+        await axios.get(`https://onrender.com`);
+        console.log("[Keep-Alive] Ping succesvol!");
+    } catch (e) {
+        console.log("[Keep-Alive] Tikje mislukt, server slaapt nog.");
     }
-}, 10 * 60 * 1000); // 10 minuten in milliseconden
-// ==============================================================================
+}, 10 * 60 * 1000); // Elke 10 minuten
+// ==============================================================
 
 app.listen(PORT, () => {
     console.log(`[SoundCloud Proxy] Server draait succesvol op poort ${PORT}`);
