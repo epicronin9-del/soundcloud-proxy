@@ -5,7 +5,13 @@ const PORT = process.env.PORT || 8080;
 
 app.use(express.json());
 
-// Ultra-stabiele route die ALTIJD geldige JSON teruggeeft aan Roblox
+// Basis-route om te testen of de server online is
+app.get('/', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.status(200).json({ status: "online", message: "SoundCloud Proxy draait succesvol!" });
+});
+
+// Universele zoekroute voor Roblox
 app.get('/search-track/:query', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
 
@@ -13,7 +19,7 @@ app.get('/search-track/:query', async (req, res) => {
         const { query } = req.params;
         console.log(`[SoundCloud Proxy] Nieuwe zoekopdracht ontvangen: "${query}"`);
 
-        // We gebruiken een publieke SoundCloud-zoekvriendelijke API om resultaten te scrapen
+        // We gebruiken een publieke SoundCloud-vriendelijke API om resultaten te scrapen
         const searchUrl = `https://soundcloud.com{encodeURIComponent(query)}&client_id=IL7Y7egZas9X4vG6uu6VpUvT8p6WkM7Y&limit=1`;
         
         const searchResponse = await axios.get(searchUrl, {
@@ -32,7 +38,7 @@ app.get('/search-track/:query', async (req, res) => {
 
         const trackData = collection[0];
         
-        // Directe en betrouwbare opbouw van de stream-URL via SoundCloud's publieke CDN-omleiding
+        // Directe opbouw van de stream-URL via SoundCloud's publieke CDN-omleiding
         const finalAudioUrl = `https://soundcloud.com{trackData.id}/stream?client_id=IL7Y7egZas9X4vG6uu6VpUvT8p6WkM7Y`;
 
         console.log(`[SoundCloud Proxy] Match gevonden: "${trackData.title}" (ID: ${trackData.id})`);
@@ -46,7 +52,7 @@ app.get('/search-track/:query', async (req, res) => {
 
     } catch (error) {
         console.error("[SoundCloud Proxy] Fout opgevangen:", error.message);
-        // Veilige JSON-fallback: we zorgen dat het script NOOIT HTML terugstuurt bij een fout
+        // Fallback: we zorgen dat het script NOOIT HTML of het hoofdmenu terugstuurt bij een fout
         return res.status(200).json({
             success: false,
             message: "Fout op de server.",
