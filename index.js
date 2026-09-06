@@ -5,84 +5,64 @@ const PORT = process.env.PORT || 8080;
 
 app.use(express.json());
 
+const CLIENT_ID = "IL7Y7egZas9X4vG6uu6VpUvT8p6WkM7Y";
+
 app.get('/', (req, res) => {
     res.setHeader('Content-Type', 'application/json');
-    return res.status(200).json({ success: true, message: "Proxy is 100% operationeel!" });
+    return res.status(200).json({ success: true, message: "SoundCloud Audio Link Proxy is online!" });
 });
 
-// De route die links direct ontcijfert
-app.get('/search', async (req, res) => {
+// De endpoint die een volledige SoundCloud URL ontleedt naar audio en metadata
+app.get('/resolve', async (req, res) => {
     res.setHeader('Content-Type', 'application/json');
 
     try {
-        let query = req.query.q;
-        if (!query) {
-            return res.status(200).json({ success: false, message: "Geen invoer." });
+        const targetUrl = req.query.url;
+        if (!targetUrl) {
+            return res.status(200).json({ success: false, message: "Geen URL meegegeven (?url=...)" });
         }
 
-        console.log(`[Proxy] Invoer ontvangen: "${query}"`);
-        const CLIENT_ID = "IL7Y7egZas9X4vG6uu6VpUvT8p6WkM7Y";
+        console.log(`[Proxy] Bezig met resolven van link: "${targetUrl}"`);
+        const cleanUrl = decodeURIComponent(targetUrl).trim();
 
-        // Harde controle: Als de link naar jouw specifieke Lekkerfaces-track verwijst, vangen we hem direct op
-        if (query.includes("thunder-dynamite-saturday-2026") || query.includes("lekkerfaces/thunder")) {
-            console.log(`[Proxy] Match voor Dynamite Saturday Thunder gedetecteerd!`);
-            
-            // Dit is het officiële interne ID van deze track op SoundCloud
-            const targetTrackId = 1827448375; 
-            const finalAudioUrl = `https://soundcloud.com{targetTrackId}/stream?client_id=${CLIENT_ID}`;
+        // Vraag de data rechtstreeks op bij SoundCloud's hoofd-resolver
+        const resolveApiUrl = `https://soundcloud.com{encodeURIComponent(cleanUrl)}&client_id=${CLIENT_ID}`;
+        const response = await axios.get(resolveApiUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+        });
 
-            return res.status(200).json({
-                success: true,
-                title: "Thunder (Dynamite Saturday 2026 OST)",
-                audioUrl: finalAudioUrl
-            });
+        const trackData = response.data;
+        if (!trackData || !trackData.id) {
+            return res.status(200).json({ success: false, message: "Link kon niet worden opgelost." });
         }
 
-        // OPTIE A: Voor elke andere willekeurige SoundCloud browser-link
-        if (query.includes("soundcloud.com") || query.includes("soundcloud")) {
-            let cleanUrl = decodeURIComponent(query).trim();
-            if (!cleanUrl.startsWith("http")) {
-                cleanUrl = "https://" + cleanUrl.replace(/^(http:\/\/|https:\/\/)?/, "");
-            }
-
-            try {
-                const resolveUrl = `https://soundcloud.com{encodeURIComponent(cleanUrl)}&client_id=${CLIENT_ID}`;
-                const resolveResponse = await axios.get(resolveUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-
-                if (resolveResponse.data && resolveResponse.data.id) {
-                    const finalAudioUrl = `https://soundcloud.com{resolveResponse.data.id}/stream?client_id=${CLIENT_ID}`;
-                    return res.status(200).json({
-                        success: true,
-                        title: resolveResponse.data.title || "Gevonden via link",
-                        audioUrl: finalAudioUrl
-                    });
-                }
-            } catch (err) {
-                console.error("[Proxy] Link resolven mislukt, we vallen terug op tekst-zoeken:", err.message);
-            }
+        // Genereer de directe MP3 audio-omleiding
+        const finalAudioUrl = `https://api.soundcloud.com/tracks/${trackData.id}/stream?client_id=${CLIENT_ID}`;
+        
+        // Pak de albumhoes (artwork), fallback naar gebruikersfoto indien leeg
+        let artworkUrl = trackData.artwork_url || trackData.user?.avatar_url || "";
+        if (artworkUrl && artworkUrl.includes('-large.')) {
+            artworkUrl = artworkUrl.replace('-large.', '-t500x500.'); // Maak de hoes scherper (HQ)
         }
 
-        // OPTIE B: Zoeken via de normale zoekbalk (als er geen link is ingevoerd)
-        const searchUrl = `https://soundcloud.com{encodeURIComponent(query)}&client_id=${CLIENT_ID}&limit=1`;
-        const searchResponse = await axios.get(searchUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-        const collection = searchResponse.data?.collection || [];
-
-        if (collection.length > 0) {
-            const trackData = collection[0];
-            const finalAudioUrl = `https://soundcloud.com{trackData.id}/stream?client_id=${CLIENT_ID}`;
-            return res.status(200).json({
-                success: true,
-                title: trackData.title,
-                audioUrl: finalAudioUrl
-            });
-        }
-
-        return res.status(200).json({ success: false, message: "Niet gevonden." });
+        return res.status(200).json({
+            success: true,
+            title: trackData.title || "Onbekend Nummer",
+            artist: trackData.user?.username || "Onbekende Artiest",
+            duration: trackData.duration || 0, // In milliseconden
+            coverUrl: artworkUrl,
+            audioUrl: finalAudioUrl
+        });
 
     } catch (error) {
-        console.error("[Proxy] Fout:", error.message);
-        return res.status(200).json({ success: false, message: "Server fout." });
+        console.error("[Proxy] Fout bij resolven:", error.message);
+        return res.status(200).json({ success: false, message: "Fout bij ophalen van SoundCloud link." });
     }
 });
 
-app.listen(PORT, () => console.log(`[Proxy] Server draait actief op poort ${PORT}`));
+// Hou Render 24/7 online
+setInterval(async () => {
+    try { await axios.get(`https://soundcloud-proxy-1mj0.onrender.com/`); } catch (e) {}
+}, 10 * 60 * 1000);
+
+app.listen(PORT, () => console.log(`[Proxy] Actief op poort ${PORT}`));
